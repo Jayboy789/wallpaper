@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>WallPainter</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #start {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            padding: 30px 60px; background: #007AFF; color: white; border: none;
+            border-radius: 40px; font-size: 24px; font-weight: bold;
+        }
+        #error {
+            position: absolute; top: 20px; left: 20px; color: #ff4444;
+            background: rgba(0,0,0,0.8); padding: 20px; display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="error"></div>
+    <button id="start" onclick="startAR()">Start AR</button>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        function startAR() {
+            document.getElementById('start').style.display = 'none';
+            
+            // Vision Pro specific: Request session without checking support first
+            navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['plane-detection', 'hand-tracking']
+            }).then(session => {
+                // Success - init THREE.js
+                const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.xr.enabled = true;
+                document.body.appendChild(renderer.domElement);
+                renderer.xr.setSession(session);
+                
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
+                scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+                
+                const cube = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.1, 0.1, 0.1),
+                    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+                );
+                cube.position.z = -0.5;
+                scene.add(cube);
+                
+                session.addEventListener('select', () => {
+                    cube.material.color.setHex(Math.random() * 0xffffff);
+                });
+                
+                renderer.setAnimationLoop(() => {
+                    cube.rotation.x += 0.01;
+                    renderer.render(scene, camera);
+                });
+            }).catch(err => {
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = err.message;
+            });
+        }
+    </script>
+</body>
+</html>
