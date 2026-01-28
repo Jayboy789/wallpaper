@@ -1,65 +1,146 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>WallPainter</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WallPainter AR</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #start {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            padding: 30px 60px; background: #007AFF; color: white; border: none;
-            border-radius: 40px; font-size: 24px; font-weight: bold;
+        body { 
+            margin: 0; overflow: hidden; background: #000; 
+            font-family: -apple-system, sans-serif; 
         }
-        #error {
-            position: absolute; top: 20px; left: 20px; color: #ff4444;
-            background: rgba(0,0,0,0.8); padding: 20px; display: none;
+        #btn {
+            position: absolute; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%);
+            padding: 30px 60px; background: #007AFF; 
+            color: white; border: none; border-radius: 40px;
+            font-size: 24px; font-weight: bold; z-index: 100;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }
+        #ui {
+            position: absolute; bottom: 40px; left: 50%;
+            transform: translateX(-50%);
+            display: none; z-index: 100;
+            background: rgba(0,0,0,0.6); padding: 20px;
+            border-radius: 20px; backdrop-filter: blur(10px);
+        }
+        .color {
+            width: 60px; height: 60px; border-radius: 50%;
+            display: inline-block; margin: 0 10px;
+            border: 3px solid white; cursor: pointer;
+        }
+        canvas { display: block; }
     </style>
 </head>
 <body>
-    <div id="error"></div>
-    <button id="start" onclick="startAR()">Start AR</button>
+    <button id="btn" onclick="startAR()">Enter AR</button>
+    
+    <div id="ui">
+        <div class="color" style="background:#e74c3c" onclick="setColor(0xe74c3c)"></div>
+        <div class="color" style="background:#3498db" onclick="setColor(0x3498db)"></div>
+        <div class="color" style="background:#2ecc71" onclick="setColor(0x2ecc71)"></div>
+        <div class="color" style="background:#f1c40f" onclick="setColor(0xf1c40f)"></div>
+        <div class="color" style="background:#9b59b6" onclick="setColor(0x9b59b6)"></div>
+        <div class="color" style="background:#ffffff" onclick="setColor(0xffffff)"></div>
+    </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        function startAR() {
-            document.getElementById('start').style.display = 'none';
+        let scene, camera, renderer, cursor;
+        let currentColor = 0x00ff00;
+        
+        async function startAR() {
+            try {
+                const session = await navigator.xr.requestSession('immersive-ar', {
+                    requiredFeatures: ['hit-test'],
+                    optionalFeatures: ['plane-detection', 'hand-tracking']
+                });
+                
+                document.getElementById('btn').style.display = 'none';
+                document.getElementById('ui').style.display = 'block';
+                
+                init3D(session);
+            } catch(e) {
+                alert('AR Error: ' + e.message);
+            }
+        }
+        
+        function init3D(session) {
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            renderer.xr.setSession(session);
             
-            // Vision Pro specific: Request session without checking support first
-            navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['hit-test'],
-                optionalFeatures: ['plane-detection', 'hand-tracking']
-            }).then(session => {
-                // Success - init THREE.js
-                const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-                renderer.setSize(window.innerWidth, window.innerHeight);
-                renderer.xr.enabled = true;
-                document.body.appendChild(renderer.domElement);
-                renderer.xr.setSession(session);
-                
-                const scene = new THREE.Scene();
-                const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
-                scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-                
-                const cube = new THREE.Mesh(
-                    new THREE.BoxGeometry(0.1, 0.1, 0.1),
-                    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
-                );
-                cube.position.z = -0.5;
-                scene.add(cube);
-                
-                session.addEventListener('select', () => {
-                    cube.material.color.setHex(Math.random() * 0xffffff);
-                });
-                
-                renderer.setAnimationLoop(() => {
-                    cube.rotation.x += 0.01;
-                    renderer.render(scene, camera);
-                });
-            }).catch(err => {
-                document.getElementById('error').style.display = 'block';
-                document.getElementById('error').textContent = err.message;
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.01, 100);
+            
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const light = new THREE.DirectionalLight(0xffffff, 0.8);
+            light.position.set(1, 2, 3);
+            scene.add(light);
+            
+            // Cursor cube
+            const geo = new THREE.BoxGeometry(0.08, 0.08, 0.08);
+            const mat = new THREE.MeshPhysicalMaterial({ 
+                color: currentColor, metalness: 0.1, roughness: 0.2 
             });
+            cursor = new THREE.Mesh(geo, mat);
+            scene.add(cursor);
+            
+            // Hit testing
+            let hitTestSource;
+            session.requestReferenceSpace('viewer').then(refSpace => {
+                session.requestHitTestSource({ space: refSpace }).then(src => {
+                    hitTestSource = src;
+                });
+            });
+            
+            session.requestReferenceSpace('local').then(refSpace => {
+                renderer.xr.setReferenceSpace(refSpace);
+            });
+            
+            // Paint on pinch
+            session.addEventListener('select', () => {
+                createPaintSplat();
+            });
+            
+            const splats = [];
+            
+            function createPaintSplat() {
+                const geo = new THREE.CircleGeometry(0.05, 32);
+                const mat = new THREE.MeshBasicMaterial({ 
+                    color: currentColor, side: THREE.DoubleSide 
+                });
+                const splat = new THREE.Mesh(geo, mat);
+                splat.position.copy(cursor.position);
+                splat.lookAt(camera.position);
+                scene.add(splat);
+                splats.push(splat);
+            }
+            
+            renderer.setAnimationLoop((time, frame) => {
+                if (frame && hitTestSource) {
+                    const hits = frame.getHitTestResults(hitTestSource);
+                    if (hits.length > 0) {
+                        const pose = hits[0].getPose(renderer.xr.getReferenceSpace());
+                        if (pose) {
+                            cursor.position.set(
+                                pose.transform.position.x,
+                                pose.transform.position.y,
+                                pose.transform.position.z
+                            );
+                        }
+                    }
+                }
+                cursor.rotation.y += 0.02;
+                renderer.render(scene, camera);
+            });
+        }
+        
+        function setColor(hex) {
+            currentColor = hex;
+            if (cursor) cursor.material.color.setHex(hex);
         }
     </script>
 </body>
